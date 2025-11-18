@@ -13,28 +13,80 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model EventCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  color       String?  // hex color for UI
+  icon        String?  // icon identifier
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  events      Event[]
+}
+
+model EventTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  title       String   // Default event title pattern
+  location    String?  // Default location
+  capacity    Int      // Default capacity
+  price       Int      // Default price
+  duration    Int?     // Duration in minutes
+  metadata    Json?    // Flexible JSON for additional template data
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  events      Event[]  // Events created from this template
+}
+
 model Event {
-  id          String        @id @default(cuid())
+  id          String         @id @default(cuid())
   title       String
+  description String?
   date        DateTime
+  endDate     DateTime?      // For multi-day or timed events
   location    String
   capacity    Int
   price       Int
-  status      String        @default("draft") // draft, published, cancelled, completed
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  applications Application[]
+  status      String         @default("draft") // draft, published, cancelled, completed
+  categoryId  String?
+  templateId  String?
+  imageUrl    String?        // Event banner/image
+  tags        String[]       // Array of tags for searching/filtering
+  metadata    Json?          // Flexible JSON for additional event data
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deletedAt   DateTime?      // Soft delete
+
+  category      EventCategory?  @relation(fields: [categoryId], references: [id])
+  template      EventTemplate?  @relation(fields: [templateId], references: [id])
+  applications  Application[]
+  reviews       Review[]
 }
 
 model Participant {
-  id            String        @id @default(cuid())
-  name          String
-  email         String        @unique
-  gender        String        // male, female, other
-  note          String?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  applications  Application[]
+  id                String                  @id @default(cuid())
+  name              String
+  email             String                  @unique
+  gender            String                  // male, female, other
+  phone             String?
+  birthDate         DateTime?
+  ageRange          String?                 // e.g., "20-25", "30-35"
+  bio               String?
+  interests         String[]                // Array of interests/hobbies
+  profileImageUrl   String?
+  metadata          Json?                   // Flexible JSON for additional profile data
+  note              String?                 // Admin notes
+  isActive          Boolean                 @default(true)
+  createdAt         DateTime                @default(now())
+  updatedAt         DateTime                @updatedAt
+  deletedAt         DateTime?               // Soft delete
+
+  applications            Application[]
+  reviews                 Review[]
+  notificationPreferences NotificationPreference[]
 }
 
 model Application {
@@ -43,11 +95,77 @@ model Application {
   participantId   String
   paymentStatus   String      @default("pending") // pending, paid, cancelled, refunded
   stripeSessionId String?
+  paymentAmount   Int?        // Actual amount paid
+  checkedIn       Boolean     @default(false)
+  checkedInAt     DateTime?
+  cancelledAt     DateTime?
+  refundedAt      DateTime?
+  metadata        Json?       // Flexible JSON for additional application data
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  event           Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  participant     Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  event              Event              @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participant        Participant        @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  paymentTransactions PaymentTransaction[]
 
   @@unique([eventId, participantId])
+  @@index([eventId])
+  @@index([participantId])
+  @@index([paymentStatus])
+}
+
+model PaymentTransaction {
+  id              String      @id @default(cuid())
+  applicationId   String
+  amount          Int
+  currency        String      @default("jpy")
+  provider        String      @default("stripe") // stripe, mock, etc.
+  providerTxnId   String?     // External transaction ID
+  status          String      // pending, completed, failed, refunded
+  metadata        Json?       // Provider-specific data
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([providerTxnId])
+}
+
+model Review {
+  id              String      @id @default(cuid())
+  eventId         String
+  participantId   String
+  rating          Int         // 1-5 stars
+  comment         String?
+  tags            String[]    // e.g., ["fun", "well-organized", "great-venue"]
+  wouldRecommend  Boolean     @default(true)
+  metadata        Json?       // Additional review data
+  isPublic        Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  event       Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, participantId])
+  @@index([eventId])
+  @@index([rating])
+}
+
+model NotificationPreference {
+  id              String      @id @default(cuid())
+  participantId   String
+  channel         String      // email, sms, push
+  eventReminders  Boolean     @default(true)
+  eventUpdates    Boolean     @default(true)
+  promotions      Boolean     @default(false)
+  reviews         Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  participant Participant @relation(fields: [participantId], references: [id], onDelete: Cascade)
+
+  @@unique([participantId, channel])
+  @@index([participantId])
 }
